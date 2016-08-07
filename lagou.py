@@ -1,23 +1,34 @@
 # -*- coding:utf8 -*-
+import argparse
 import re
 import random
 import collections
 
 import requests
+from terminaltables import AsciiTable
+
+
+def chinese(string):
+    return string.encode('utf8')
 
 
 class Position(object):
 
     def __init__(self, payload):
         self.payload = payload
-        self.name = payload['positionName'].encode('utf8')
-        self.company = payload['companyShortName'].encode('utf8')
+        self.name = chinese(payload['positionName'])
+        self.company = chinese(payload['companyShortName'])
         self.id = payload['positionId']
-        self.city = payload['city']
+        self.city = chinese(payload['city'])
         self.position_url = 'http://www.lagou.com/jobs/%s.html' % self.id
 
     @property
     def salary(self):
+        raw = self.payload['salary']
+        if u'以上' in raw:
+            finded = re.search('(\d+)', raw)
+            return int(finded.groups()[0])
+
         if '-' not in self.payload['salary']:
             print self.payload['salary']
             return
@@ -49,6 +60,9 @@ class Lagou(object):
     def _get_result(self, body):
         return body['content']['positionResult']['result']
 
+    def _get_total_count(self, body):
+        return body['content']['positionResult']['totalCount']
+
     def _validate_body(self, body):
         if body['success'] == False:
             print body['msg']
@@ -58,11 +72,13 @@ class Lagou(object):
 
     def get_all(self, keyword, city=None, start_page=1, max_page=50, cls=None):
         """Get all position from lagou"""
+        print "%s in city: %s" % (keyword, city)
         url = self.url
         if city:
             url = url + '&city=%s' % city
 
         total = []
+        total_count = 0
         page = start_page
         try:
             while True:
@@ -73,17 +89,20 @@ class Lagou(object):
                     'kd': keyword,
                 }
                 body = self._do_post(url, data)
+
                 if not self._validate_body(body):
                     break
 
                 if self._is_last_page(body):
                     break
                 else:
+                    total_count = self._get_total_count(body)
                     total.extend(self._get_result(body))
                     page = page + 1
         except Exception as ex:
             print ex
 
+        print 'Position desired count: %s' % total_count
         if cls:
             return [cls(pos) for pos in total]
         else:
@@ -114,21 +133,80 @@ class SalarySorter(Sorter):
         return sorted(positions, key=lambda x: x.salary)
 
 
-def get_line(radio=100):
+def get_line(radio=1):
     char = '▇'
-    return char * int(100 * radio)
+    length = int(100 * radio)
+    if length < 1:
+        return '|'
+    else:
+        return char * length
+
+
+class Counter(object):
+
+    def __init__(self):
+        self._counter = collections.defaultdict(lambda: 0)
+
+    def increase(self, name):
+        self._counter[name] += 1
+
+    def sum(self):
+        return sum(self._counter.values())
+
+    def print_stats_graph(self, reverse=False):
+        total = self.sum()
+        for key in sorted(self._counter.keys(), reverse=reverse):
+            value = self._counter[key]
+            percent = value / float(total)
+            print '%3s: %s %s (%.2f%%)' % (key, get_line(percent),  value, percent * 100)
+
+
+def parse_argv():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-k', '--keyword', required=True)
+    parser.add_argument('-c', '--city')
+    parser.add_argument('-p', '--page', type=int, default=1)
+    parser.add_argument('-s', '--company-stats', action='store_true')
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
+    args = parse_argv()
     lagou = Lagou()
-    python = lagou.get_all('python', city='杭州', start_page=1, cls=Position)
+    positions = lagou.get_all(args.keyword, city=args.city, start_page=args.page, cls=Position)
+
+    # position lists
     sorter = SalarySorter()
-    counter = collections.defaultdict(lambda: 0)
-    for py in sorter.sort(python):
-        print py.salary, py.name, py.company, py.city, py.position_url
-        counter[py.salary] = counter[py.salary] + 1
-    print '-' * 30
-    total = sum(counter.values())
-    for k, v in counter.iteritems():
-        percent = v / float(total)
-        print '%2s: %s %s (%.2f)' % (k, get_line(percent),  v, percent)
+    positions = sorter.sort(positions)
+
+    salary_counter = Counter()
+    city_counter = Counter()
+    company_counter = Counter()
+
+    table_datas = [
+        ['#', 'K', 'name', 'company', 'city', 'link']
+    ]
+    for index, pos in enumerate(positions):
+        salary_counter.increase(pos.salary)
+        city_counter.increase(pos.city)
+        company_counter.increase(pos.company)
+
+        table_datas.append([
+            index + 1, pos.salary, pos.name, pos.company, pos.city, pos.position_url
+        ])
+
+    print AsciiTable(table_datas).table
+
+    print '[-] Position Total: %s' % len(positions)
+
+    print '[-] City distribute:'
+    print '=' * 80
+    city_counter.print_stats_graph()
+
+    print '[-] Salary distribute:'
+    print '=' * 80
+    salary_counter.print_stats_graph()
+
+    if args.company_stats:
+        print '[-] Company distribute'
+        company_counter.print_stats_graph()
