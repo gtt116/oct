@@ -16,6 +16,7 @@ class Position(object):
 
     def __init__(self, payload):
         self.payload = payload
+        self.create_time = chinese(payload['createTime'])
         self.name = chinese(payload['positionName'])
         self.company = chinese(payload['companyShortName'])
         self.id = payload['positionId']
@@ -118,21 +119,6 @@ class Lagou(object):
         return response_body
 
 
-class Sorter(object):
-
-    def __call__(self, positions):
-        self.sort(positions)
-
-    def sort(self, positions):
-        pass
-
-
-class SalarySorter(Sorter):
-
-    def sort(self, positions):
-        return sorted(positions, key=lambda x: x.salary)
-
-
 def get_line(radio=1):
     char = '▇'
     length = int(100 * radio)
@@ -166,8 +152,16 @@ def parse_argv():
     parser.add_argument('-k', '--keyword', required=True)
     parser.add_argument('-c', '--city')
     parser.add_argument('-p', '--page', type=int, default=1)
-    parser.add_argument('-s', '--company-stats', action='store_true')
+    parser.add_argument('-s', '--sort', default='salary', help="[salary, time]")
+    parser.add_argument('-o', '--company-stats', action='store_true')
     return parser.parse_args()
+
+
+def get_sort_key(args):
+    if args.sort == 'time':
+        return lambda x: x.create_time
+    else:
+        return lambda x: x.salary
 
 
 if __name__ == '__main__':
@@ -176,15 +170,15 @@ if __name__ == '__main__':
     positions = lagou.get_all(args.keyword, city=args.city, start_page=args.page, cls=Position)
 
     # position lists
-    sorter = SalarySorter()
-    positions = sorter.sort(positions)
+    sort_key = get_sort_key(args)
+    positions = sorted(positions, key=sort_key)
 
     salary_counter = Counter()
     city_counter = Counter()
     company_counter = Counter()
 
     table_datas = [
-        ['#', 'K', 'name', 'company', 'city', 'link']
+        ['#', 'K', 'name', 'company', 'city', 'time', 'link']
     ]
     for index, pos in enumerate(positions):
         salary_counter.increase(pos.salary)
@@ -192,7 +186,7 @@ if __name__ == '__main__':
         company_counter.increase(pos.company)
 
         table_datas.append([
-            index + 1, pos.salary, pos.name, pos.company, pos.city, pos.position_url
+            index + 1, pos.salary, pos.name, pos.company, pos.city, pos.create_time, pos.position_url
         ])
 
     print AsciiTable(table_datas).table
