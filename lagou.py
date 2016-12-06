@@ -147,6 +147,23 @@ class Counter(object):
             print '%3s: %s %s (%.2f%%)' % (key, get_line(percent),  value, percent * 100)
 
 
+class Meaner(object):
+
+    def __init__(self):
+        self._counter = []
+
+    def add(self, value):
+        if not value:
+            value = 0
+        self._counter.append(value)
+
+    def mean(self):
+        if len(self._counter) == 0:
+            return 0
+        else:
+            return sum(self._counter) / len(self._counter)
+
+
 def parse_argv():
     parser = argparse.ArgumentParser()
     parser.add_argument('-k', '--keyword', required=True)
@@ -176,6 +193,7 @@ if __name__ == '__main__':
     salary_counter = Counter()
     city_counter = Counter()
     company_counter = Counter()
+    meaner = Meaner()
 
     table_datas = [
         ['#', 'K', 'name', 'company', 'city', 'time', 'link']
@@ -184,6 +202,7 @@ if __name__ == '__main__':
         salary_counter.increase(pos.salary)
         city_counter.increase(pos.city)
         company_counter.increase(pos.company)
+        meaner.add(pos.salary)
 
         table_datas.append([
             index + 1, pos.salary, pos.name, pos.company, pos.city, pos.create_time, pos.position_url
@@ -200,6 +219,10 @@ if __name__ == '__main__':
     print '[-] Salary distribute:'
     print '=' * 80
     salary_counter.print_stats_graph()
+
+    print '=' * 80
+    print '[-] Mean salary is:'
+    print meaner.mean()
 
     if args.company_stats:
         print '[-] Company distribute'
